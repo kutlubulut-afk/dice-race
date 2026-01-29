@@ -217,7 +217,23 @@
 
             const startSoloGame = () => {
                 setGameMode('solo');
-                setGameCode('SOLO-' + Date.now());
+                const code = 'SOLO-' + Date.now();
+                setGameCode(code);
+                // Auto-setup solo game with player and CPU
+                setTimeout(() => {
+                    setLoading(false);
+                }, 100);
+            };
+
+            const goBack = () => {
+                setGameMode(null);
+                setGameCode('');
+                setInputGameCode('');
+                setHasJoined(false);
+                setPlayerName('');
+                setGameState(null);
+                setDiceValue(null);
+                setLoading(true);
             };
 
             useEffect(() => {
@@ -333,7 +349,13 @@
                 if (playerName.trim() && gameState && !gameState.gameStarted) {
                     const existingPlayer = gameState.players.find(p => p.name === playerName.trim());
                     if (!existingPlayer) {
-                        const newPlayers = [...gameState.players, { name: playerName.trim(), position: 0 }];
+                        let newPlayers = [...gameState.players, { name: playerName.trim(), position: 0, isCPU: false }];
+                        
+                        // If solo mode, add CPU player
+                        if (gameMode === 'solo' && newPlayers.length === 1) {
+                            newPlayers.push({ name: 'CPU', position: 0, isCPU: true });
+                        }
+                        
                         const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
                         gameRefPath.update({ players: newPlayers }).catch(err => console.error('Error joining game:', err));
                     }
@@ -342,7 +364,8 @@
             };
 
             const startGame = () => {
-                if (gameState && gameState.players.length >= 2) {
+                const minPlayers = gameMode === 'solo' ? 1 : 2;
+                if (gameState && gameState.players.length >= minPlayers) {
                     const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
                     gameRefPath.update({
                         gameStarted: true,
@@ -355,16 +378,19 @@
                 if (isRolling || !gameState || gameState.winner || !gameState.players || gameState.players.length === 0) return;
                 
                 const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-                if (!currentPlayer || currentPlayer.name !== playerName) return;
+                if (!currentPlayer || (!currentPlayer.isCPU && currentPlayer.name !== playerName)) return;
 
                 setIsRolling(true);
+
+                // If CPU's turn, automatically choose a dice type
+                const actualDiceType = currentPlayer.isCPU ? (Math.random() < 0.33 ? 'safe' : Math.random() < 0.5 ? 'normal' : 'risky') : diceType;
 
                 let rolls = 0;
                 const rollInterval = setInterval(() => {
                     let randomValue;
-                    if (diceType === 'safe') {
+                    if (actualDiceType === 'safe') {
                         randomValue = Math.random() < 0.5 ? 3 : 4;
-                    } else if (diceType === 'risky') {
+                    } else if (actualDiceType === 'risky') {
                         const riskyOptions = [1, 2, 6];
                         randomValue = riskyOptions[Math.floor(Math.random() * 3)];
                     } else {
@@ -376,9 +402,9 @@
                     if (rolls > 10) {
                         clearInterval(rollInterval);
                         let finalValue;
-                        if (diceType === 'safe') {
+                        if (actualDiceType === 'safe') {
                             finalValue = Math.random() < 0.5 ? 3 : 4;
-                        } else if (diceType === 'risky') {
+                        } else if (actualDiceType === 'risky') {
                             const riskyOptions = [1, 2, 6];
                             finalValue = riskyOptions[Math.floor(Math.random() * 3)];
                         } else {
@@ -466,6 +492,12 @@
                         </div>
 
                         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+                            <button
+                                onClick={goBack}
+                                className="mb-4 text-gray-600 hover:text-gray-800 flex items-center gap-1 text-sm"
+                            >
+                                ← Back
+                            </button>
                             <div className="flex justify-between items-start mb-6">
                                 <div className="flex-1">
                                     <div className="text-center mb-6">
@@ -531,10 +563,12 @@
                             {hasJoined && !gameState.gameStarted && (
                                 <button
                                     onClick={startGame}
-                                    disabled={!gameState.players || gameState.players.length < 2}
+                                    disabled={!gameState.players || (gameMode === 'solo' ? gameState.players.length < 1 : gameState.players.length < 2)}
                                     className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-bold text-lg hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {!gameState.players || gameState.players.length < 2 ? 'Need at least 2 players' : 'Start Race!'}
+                                    {!gameState.players || (gameMode === 'solo' ? gameState.players.length < 1 : gameState.players.length < 2) 
+                                        ? (gameMode === 'solo' ? 'Enter your name to start' : 'Need at least 2 players') 
+                                        : 'Start Race!'}
                                 </button>
                             )}
 
@@ -607,6 +641,7 @@
                                             <div className="flex justify-between items-center mb-2">
                                                 <span className={`font-bold text-base md:text-lg ${isCurrentPlayer ? 'text-purple-700' : 'text-gray-700'}`}>
                                                     {player.name}
+                                                    {player.isCPU && ' 🤖'}
                                                     {isCurrentPlayer && !gameState.winner && ' 👈'}
                                                 </span>
                                                 <span className="text-xs md:text-sm font-semibold text-gray-600">
