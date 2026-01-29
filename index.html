@@ -489,7 +489,22 @@
                     setDiceValue(null);
                 }
             };
+// Add this right after the restartRace function and before the "if (loading)" check
 
+// Auto-roll for CPU with proper dependencies
+useEffect(() => {
+    if (!gameState || !gameState.gameStarted || gameState.winner || isRolling) return;
+    if (!gameState.players || gameState.players.length === 0) return;
+    
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (!currentPlayer || !currentPlayer.isCPU) return;
+
+    const timer = setTimeout(() => {
+        rollDice('normal'); // Type doesn't matter, CPU will decide
+    }, 1500);
+
+    return () => clearTimeout(timer);
+}, [gameState?.currentPlayerIndex, gameState?.gameStarted, gameState?.winner, isRolling, gameState?.players?.length]);
             if (loading) {
                 return (
                     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
