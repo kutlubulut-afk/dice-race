@@ -378,12 +378,40 @@
                 if (isRolling || !gameState || gameState.winner || !gameState.players || gameState.players.length === 0) return;
                 
                 const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-                if (!currentPlayer || (!currentPlayer.isCPU && currentPlayer.name !== playerName)) return;
+                if (!currentPlayer) return;
+                
+                // Check if it's this player's turn
+                if (!currentPlayer.isCPU && currentPlayer.name !== playerName) return;
 
                 setIsRolling(true);
 
-                // If CPU's turn, automatically choose a dice type
-                const actualDiceType = currentPlayer.isCPU ? (Math.random() < 0.33 ? 'safe' : Math.random() < 0.5 ? 'normal' : 'risky') : diceType;
+                // CPU logic: assess the situation and choose dice type
+                let actualDiceType = diceType;
+                if (currentPlayer.isCPU) {
+                    const cpuPosition = currentPlayer.position;
+                    const humanPlayer = gameState.players.find(p => !p.isCPU);
+                    const humanPosition = humanPlayer ? humanPlayer.position : 0;
+                    const distanceToWin = WINNING_POSITION - cpuPosition;
+                    const behindBy = humanPosition - cpuPosition;
+                    
+                    // CPU decision logic
+                    if (distanceToWin <= 5) {
+                        // Close to winning - play it safe
+                        actualDiceType = 'safe';
+                    } else if (behindBy > 8) {
+                        // Far behind - take risks
+                        actualDiceType = 'risky';
+                    } else if (behindBy > 3) {
+                        // Somewhat behind - go risky sometimes
+                        actualDiceType = Math.random() < 0.6 ? 'risky' : 'normal';
+                    } else if (behindBy < -5) {
+                        // Far ahead - play safe
+                        actualDiceType = 'safe';
+                    } else {
+                        // Close race - balanced approach
+                        actualDiceType = 'normal';
+                    }
+                }
 
                 let rolls = 0;
                 const rollInterval = setInterval(() => {
