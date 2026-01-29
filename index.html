@@ -107,7 +107,7 @@
 
             const handleLogin = () => {
                 if (username === VALID_USERNAME && password === VALID_PASSWORD) {
-                    onLoginSuccess();
+                    onLoginSuccess(username);
                 } else {
                     setError('Invalid username or password');
                     setTimeout(() => setError(''), 3000);
@@ -177,10 +177,21 @@
             const [loading, setLoading] = useState(true);
             const WINNING_POSITION = 30;
 
-            const handleLoginSuccess = () => {
+            const handleLoginSuccess = (username) => {
                 localStorage.setItem('dicerace_auth', 'true');
+                localStorage.setItem('dicerace_username', username);
                 setIsLoggedIn(true);
             };
+
+            const handleLogout = () => {
+                localStorage.removeItem('dicerace_auth');
+                localStorage.removeItem('dicerace_username');
+                setIsLoggedIn(false);
+                setHasJoined(false);
+                setPlayerName('');
+            };
+
+            const loggedInUsername = localStorage.getItem('dicerace_username');
 
             useEffect(() => {
                 if (isLoggedIn) {
@@ -331,12 +342,29 @@
                 return (
                     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-8 flex items-center justify-center">
                         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
-                            <div className="text-center mb-6">
-                                <div className="flex justify-center mb-4 text-purple-600">
-                                    <DicesIcon />
+                            <div className="flex justify-between items-start mb-6">
+                                <div className="flex-1">
+                                    <div className="text-center mb-6">
+                                        <div className="flex justify-center mb-4 text-purple-600">
+                                            <DicesIcon />
+                                        </div>
+                                        <h1 className="text-3xl font-bold text-gray-800 mb-2">Dice Race</h1>
+                                        <p className="text-gray-600">Multiplayer icebreaker game</p>
+                                    </div>
                                 </div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Dice Race</h1>
-                                <p className="text-gray-600">Multiplayer icebreaker game</p>
+                            </div>
+
+                            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-green-700">🔓 Logged in as:</span>
+                                    <span className="font-semibold text-green-800">{loggedInUsername}</span>
+                                </div>
+                                <button
+                                    onClick={handleLogout}
+                                    className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                                >
+                                    Sign Out
+                                </button>
                             </div>
 
                             {!hasJoined ? (
@@ -403,7 +431,7 @@
                 <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4 md:p-8">
                     <div className="max-w-6xl mx-auto">
                         <div className="bg-white rounded-2xl shadow-2xl p-4 md:p-8">
-                            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                            <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                                 <div>
                                     <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Dice Race</h1>
                                     <p className="text-sm text-gray-600">Playing as: {playerName}</p>
@@ -423,6 +451,19 @@
                                         New Game
                                     </button>
                                 </div>
+                            </div>
+
+                            <div className="mb-6 p-2 bg-green-50 border border-green-200 rounded-lg flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-green-700">🔓 Logged in as:</span>
+                                    <span className="font-semibold text-green-800">{loggedInUsername}</span>
+                                </div>
+                                <button
+                                    onClick={handleLogout}
+                                    className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                                >
+                                    Sign Out
+                                </button>
                             </div>
 
                             {gameState.winner && (
