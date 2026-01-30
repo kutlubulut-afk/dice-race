@@ -239,18 +239,25 @@
                 setLoading(true);
             };
 
-            // Timer countdown
+            // Timer countdown and auto-end round
             useEffect(() => {
                 if (gameState && gameState.roundActive && gameState.roundEndTime) {
                     const interval = setInterval(() => {
                         const now = Date.now();
                         const remaining = Math.max(0, Math.ceil((gameState.roundEndTime - now) / 1000));
                         setTimeLeft(remaining);
+                        
+                        // Auto-end round when timer reaches 0 or everyone has rolled
+                        const allPlayersRolled = gameState.players.every(p => p.hasRolledThisRound);
+                        if ((remaining <= 0 || allPlayersRolled) && gameState.roundActive) {
+                            const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
+                            gameRefPath.update({ roundActive: false });
+                        }
                     }, 100);
 
                     return () => clearInterval(interval);
                 }
-            }, [gameState?.roundActive, gameState?.roundEndTime]);
+            }, [gameState, gameMode, gameCode]);
 
             useEffect(() => {
                 if (isLoggedIn && gameMode && gameCode) {
@@ -465,13 +472,16 @@
                 if (!gameState || gameState.roundActive) return;
                 
                 // Apply rolls and update positions
-                const updatedPlayers = gameState.players.map(p => ({
-                    ...p,
-                    position: p.position + (p.currentRoll || 0),
-                    currentRoll: null,
-                    diceChoice: null,
-                    hasRolledThisRound: false
-                }));
+                const updatedPlayers = gameState.players.map(p => {
+                    const newPosition = p.position + (p.currentRoll || 0);
+                    return {
+                        ...p,
+                        position: Math.min(newPosition, WINNING_POSITION),
+                        currentRoll: null,
+                        diceChoice: null,
+                        hasRolledThisRound: false
+                    };
+                });
 
                 // Check for winner
                 const winner = updatedPlayers.find(p => p.position >= WINNING_POSITION);
@@ -755,7 +765,11 @@
                             {gameState.roundActive && (
                                 <div className="mb-6 p-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl text-white text-center">
                                     <div className="text-4xl font-bold mb-2">{timeLeft}s</div>
-                                    <div className="text-sm">Time remaining to roll</div>
+                                    <div className="text-sm">
+                                        {gameState.players.every(p => p.hasRolledThisRound) 
+                                            ? 'Everyone has rolled! Round ending...'
+                                            : 'Time remaining to roll'}
+                                    </div>
                                 </div>
                             )}
 
