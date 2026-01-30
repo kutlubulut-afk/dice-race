@@ -725,7 +725,7 @@
                                 </div>
                             </div>
 
-                            {!gameState.waitingForRolls && !gameState.winner && isHost && (
+                            {gameState.waitingForRolls && allPlayersRolled && isHost && (
                                 <div className="mb-6 text-center">
                                     <button
                                         onClick={startNextRound}
@@ -736,13 +736,7 @@
                                 </div>
                             )}
 
-                            {!gameState.waitingForRolls && !gameState.winner && !isHost && (
-                                <div className="mb-6 p-4 bg-gray-100 rounded-xl text-center text-gray-600">
-                                    Waiting for host to start next round...
-                                </div>
-                            )}
-
-                            {gameState.waitingForRolls && allPlayersRolled && (
+                            {gameState.waitingForRolls && allPlayersRolled && !isHost && (
                                 <div className="mb-6 p-4 bg-green-100 rounded-xl text-center text-green-700 font-semibold">
                                     ✓ Everyone has rolled! Waiting for host to continue...
                                 </div>
