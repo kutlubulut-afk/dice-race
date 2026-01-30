@@ -166,6 +166,7 @@
 
         const DiceRaceGame = () => {
             const WINNING_POSITION = 30;
+            const ROUND_TIME = 10;
             
             const [isLoggedIn, setIsLoggedIn] = useState(() => {
                 return localStorage.getItem('dicerace_auth') === 'true';
@@ -177,8 +178,10 @@
             const [playerName, setPlayerName] = useState('');
             const [hasJoined, setHasJoined] = useState(false);
             const [isRolling, setIsRolling] = useState(false);
-            const [diceValue, setDiceValue] = useState(null);
+            const [myRoll, setMyRoll] = useState(null);
+            const [myDiceChoice, setMyDiceChoice] = useState(null);
             const [loading, setLoading] = useState(true);
+            const [timeLeft, setTimeLeft] = useState(0);
 
             const handleLoginSuccess = (username) => {
                 localStorage.setItem('dicerace_auth', 'true');
@@ -231,9 +234,23 @@
                 setHasJoined(false);
                 setPlayerName('');
                 setGameState(null);
-                setDiceValue(null);
+                setMyRoll(null);
+                setMyDiceChoice(null);
                 setLoading(true);
             };
+
+            // Timer countdown
+            useEffect(() => {
+                if (gameState && gameState.roundActive && gameState.roundEndTime) {
+                    const interval = setInterval(() => {
+                        const now = Date.now();
+                        const remaining = Math.max(0, Math.ceil((gameState.roundEndTime - now) / 1000));
+                        setTimeLeft(remaining);
+                    }, 100);
+
+                    return () => clearInterval(interval);
+                }
+            }, [gameState?.roundActive, gameState?.roundEndTime]);
 
             useEffect(() => {
                 if (isLoggedIn && gameMode && gameCode) {
@@ -246,9 +263,12 @@
                         } else {
                             const initialState = {
                                 players: [],
-                                currentPlayerIndex: 0,
                                 gameStarted: false,
-                                winner: null
+                                winner: null,
+                                roundNumber: 0,
+                                roundActive: false,
+                                roundEndTime: null,
+                                hostName: null
                             };
                             gameRefPath.set(initialState).catch(err => console.error('Error setting initial state:', err));
                             setGameState(initialState);
@@ -260,100 +280,54 @@
                 }
             }, [isLoggedIn, gameMode, gameCode]);
 
-            const rollDice = useCallback((diceType) => {
-                if (isRolling || !gameState || gameState.winner || !gameState.players || gameState.players.length === 0) return;
+            // CPU auto-roll
+            useEffect(() => {
+                if (!gameState || !gameState.roundActive || !timeLeft) return;
+                if (gameMode !== 'solo') return;
                 
-                const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-                if (!currentPlayer) return;
-                
-                if (!currentPlayer.isCPU && currentPlayer.name !== playerName) return;
+                const cpuPlayer = gameState.players.find(p => p.isCPU);
+                if (!cpuPlayer || cpuPlayer.hasRolledThisRound) return;
 
-                setIsRolling(true);
-
-                let actualDiceType = diceType;
-                if (currentPlayer.isCPU) {
-                    const cpuPosition = currentPlayer.position;
+                const cpuRollDelay = 1000 + Math.random() * 2000;
+                const timer = setTimeout(() => {
+                    const cpuPosition = cpuPlayer.position;
                     const humanPlayer = gameState.players.find(p => !p.isCPU);
                     const humanPosition = humanPlayer ? humanPlayer.position : 0;
                     const distanceToWin = WINNING_POSITION - cpuPosition;
                     const behindBy = humanPosition - cpuPosition;
                     
+                    let diceChoice;
                     if (distanceToWin <= 5) {
-                        actualDiceType = 'safe';
+                        diceChoice = 'safe';
                     } else if (behindBy > 8) {
-                        actualDiceType = 'risky';
+                        diceChoice = 'risky';
                     } else if (behindBy > 3) {
-                        actualDiceType = Math.random() < 0.6 ? 'risky' : 'normal';
+                        diceChoice = Math.random() < 0.6 ? 'risky' : 'normal';
                     } else if (behindBy < -5) {
-                        actualDiceType = 'safe';
+                        diceChoice = 'safe';
                     } else {
-                        actualDiceType = 'normal';
+                        diceChoice = 'normal';
                     }
-                }
 
-                let rolls = 0;
-                const rollInterval = setInterval(() => {
-                    let randomValue;
-                    if (actualDiceType === 'safe') {
-                        randomValue = Math.random() < 0.5 ? 3 : 4;
-                    } else if (actualDiceType === 'risky') {
+                    let roll;
+                    if (diceChoice === 'safe') {
+                        roll = Math.random() < 0.5 ? 3 : 4;
+                    } else if (diceChoice === 'risky') {
                         const riskyOptions = [1, 2, 6];
-                        randomValue = riskyOptions[Math.floor(Math.random() * 3)];
+                        roll = riskyOptions[Math.floor(Math.random() * 3)];
                     } else {
-                        randomValue = Math.floor(Math.random() * 6) + 1;
+                        roll = Math.floor(Math.random() * 6) + 1;
                     }
-                    setDiceValue(randomValue);
-                    rolls++;
-                    
-                    if (rolls > 10) {
-                        clearInterval(rollInterval);
-                        let finalValue;
-                        if (actualDiceType === 'safe') {
-                            finalValue = Math.random() < 0.5 ? 3 : 4;
-                        } else if (actualDiceType === 'risky') {
-                            const riskyOptions = [1, 2, 6];
-                            finalValue = riskyOptions[Math.floor(Math.random() * 3)];
-                        } else {
-                            finalValue = Math.floor(Math.random() * 6) + 1;
-                        }
-                        setDiceValue(finalValue);
-                        
-                        setTimeout(() => {
-                            const newPlayers = [...gameState.players];
-                            newPlayers[gameState.currentPlayerIndex].position += finalValue;
-                            
-                            let newWinner = null;
-                            if (newPlayers[gameState.currentPlayerIndex].position >= WINNING_POSITION) {
-                                newPlayers[gameState.currentPlayerIndex].position = WINNING_POSITION;
-                                newWinner = newPlayers[gameState.currentPlayerIndex].name;
-                            }
-                            
-                            const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
-                            gameRefPath.update({
-                                players: newPlayers,
-                                winner: newWinner,
-                                currentPlayerIndex: newWinner ? gameState.currentPlayerIndex : (gameState.currentPlayerIndex + 1) % gameState.players.length
-                            }).catch(err => console.error('Error updating game:', err));
-                            
-                            setIsRolling(false);
-                        }, 500);
-                    }
-                }, 100);
-            }, [isRolling, gameState, playerName, gameMode, gameCode, WINNING_POSITION]);
 
-            useEffect(() => {
-                if (!gameState || !gameState.gameStarted || gameState.winner || isRolling) return;
-                if (!gameState.players || gameState.players.length === 0) return;
-                
-                const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-                if (!currentPlayer || !currentPlayer.isCPU) return;
-
-                const timer = setTimeout(() => {
-                    rollDice('normal');
-                }, 1500);
+                    const gameRefPath = database.ref(`game-solo/${gameCode}`);
+                    const updatedPlayers = gameState.players.map(p => 
+                        p.isCPU ? { ...p, currentRoll: roll, diceChoice, hasRolledThisRound: true } : p
+                    );
+                    gameRefPath.update({ players: updatedPlayers });
+                }, cpuRollDelay);
 
                 return () => clearTimeout(timer);
-            }, [gameState, isRolling, rollDice]);
+            }, [gameState, timeLeft, gameMode, gameCode]);
 
             if (!isLoggedIn) {
                 return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
@@ -443,54 +417,168 @@
                 if (playerName.trim() && gameState && !gameState.gameStarted) {
                     const existingPlayer = gameState.players.find(p => p.name === playerName.trim());
                     if (!existingPlayer) {
-                        let newPlayers = [...gameState.players, { name: playerName.trim(), position: 0, isCPU: false }];
+                        let newPlayers = [...gameState.players, { 
+                            name: playerName.trim(), 
+                            position: 0, 
+                            isCPU: false,
+                            currentRoll: null,
+                            diceChoice: null,
+                            hasRolledThisRound: false
+                        }];
                         
                         if (gameMode === 'solo' && newPlayers.length === 1) {
-                            newPlayers.push({ name: 'CPU', position: 0, isCPU: true });
+                            newPlayers.push({ 
+                                name: 'CPU', 
+                                position: 0, 
+                                isCPU: true,
+                                currentRoll: null,
+                                diceChoice: null,
+                                hasRolledThisRound: false
+                            });
                         }
                         
                         const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
-                        gameRefPath.update({ players: newPlayers }).catch(err => console.error('Error joining game:', err));
+                        const updates = { players: newPlayers };
+                        if (!gameState.hostName) {
+                            updates.hostName = playerName.trim();
+                        }
+                        gameRefPath.update(updates).catch(err => console.error('Error joining game:', err));
                     }
                     setHasJoined(true);
                 }
             };
 
             const startGame = () => {
-                const minPlayers = gameMode === 'solo' ? 1 : 2;
+                const minPlayers = gameMode === 'solo' ? 2 : 2;
                 if (gameState && gameState.players.length >= minPlayers) {
                     const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
                     gameRefPath.update({
                         gameStarted: true,
-                        currentPlayerIndex: 0
+                        roundNumber: 1,
+                        roundActive: true,
+                        roundEndTime: Date.now() + (ROUND_TIME * 1000)
                     }).catch(err => console.error('Error starting game:', err));
                 }
+            };
+
+            const startNextRound = () => {
+                if (!gameState || gameState.roundActive) return;
+                
+                // Apply rolls and update positions
+                const updatedPlayers = gameState.players.map(p => ({
+                    ...p,
+                    position: p.position + (p.currentRoll || 0),
+                    currentRoll: null,
+                    diceChoice: null,
+                    hasRolledThisRound: false
+                }));
+
+                // Check for winner
+                const winner = updatedPlayers.find(p => p.position >= WINNING_POSITION);
+
+                const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
+                
+                if (winner) {
+                    gameRefPath.update({
+                        players: updatedPlayers,
+                        winner: winner.name,
+                        roundActive: false
+                    });
+                } else {
+                    gameRefPath.update({
+                        players: updatedPlayers,
+                        roundNumber: gameState.roundNumber + 1,
+                        roundActive: true,
+                        roundEndTime: Date.now() + (ROUND_TIME * 1000)
+                    });
+                }
+
+                setMyRoll(null);
+                setMyDiceChoice(null);
+            };
+
+            const rollDice = (diceType) => {
+                if (isRolling || myRoll !== null || !gameState?.roundActive) return;
+                
+                setIsRolling(true);
+                setMyDiceChoice(diceType);
+
+                let rolls = 0;
+                const rollInterval = setInterval(() => {
+                    let randomValue;
+                    if (diceType === 'safe') {
+                        randomValue = Math.random() < 0.5 ? 3 : 4;
+                    } else if (diceType === 'risky') {
+                        const riskyOptions = [1, 2, 6];
+                        randomValue = riskyOptions[Math.floor(Math.random() * 3)];
+                    } else {
+                        randomValue = Math.floor(Math.random() * 6) + 1;
+                    }
+                    setMyRoll(randomValue);
+                    rolls++;
+                    
+                    if (rolls > 10) {
+                        clearInterval(rollInterval);
+                        let finalValue;
+                        if (diceType === 'safe') {
+                            finalValue = Math.random() < 0.5 ? 3 : 4;
+                        } else if (diceType === 'risky') {
+                            const riskyOptions = [1, 2, 6];
+                            finalValue = riskyOptions[Math.floor(Math.random() * 3)];
+                        } else {
+                            finalValue = Math.floor(Math.random() * 6) + 1;
+                        }
+                        setMyRoll(finalValue);
+                        
+                        // Update Firebase with the roll
+                        const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
+                        const updatedPlayers = gameState.players.map(p => 
+                            p.name === playerName ? { ...p, currentRoll: finalValue, diceChoice: diceType, hasRolledThisRound: true } : p
+                        );
+                        gameRefPath.update({ players: updatedPlayers });
+                        
+                        setIsRolling(false);
+                    }
+                }, 100);
             };
 
             const resetGame = () => {
                 const newState = {
                     players: [],
-                    currentPlayerIndex: 0,
                     gameStarted: false,
-                    winner: null
+                    winner: null,
+                    roundNumber: 0,
+                    roundActive: false,
+                    roundEndTime: null,
+                    hostName: null
                 };
                 const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
                 gameRefPath.set(newState).catch(err => console.error('Error resetting game:', err));
                 setHasJoined(false);
                 setPlayerName('');
-                setDiceValue(null);
+                setMyRoll(null);
+                setMyDiceChoice(null);
             };
 
             const restartRace = () => {
                 if (gameState && gameState.players) {
-                    const resetPlayers = gameState.players.map(p => ({ ...p, position: 0 }));
+                    const resetPlayers = gameState.players.map(p => ({ 
+                        ...p, 
+                        position: 0,
+                        currentRoll: null,
+                        diceChoice: null,
+                        hasRolledThisRound: false
+                    }));
                     const gameRefPath = gameMode === 'solo' ? database.ref(`game-solo/${gameCode}`) : database.ref(`game-multi/${gameCode}`);
                     gameRefPath.update({
                         players: resetPlayers,
-                        currentPlayerIndex: 0,
-                        winner: null
+                        winner: null,
+                        roundNumber: 1,
+                        roundActive: true,
+                        roundEndTime: Date.now() + (ROUND_TIME * 1000)
                     }).catch(err => console.error('Error restarting race:', err));
-                    setDiceValue(null);
+                    setMyRoll(null);
+                    setMyDiceChoice(null);
                 }
             };
 
@@ -583,25 +671,34 @@
                                 ) : (
                                     <div className="space-y-2">
                                         {gameState.players.map((player, idx) => (
-                                            <div key={idx} className="bg-white px-4 py-2 rounded-lg shadow-sm flex items-center gap-2">
-                                                <UsersIcon />
-                                                <span className="font-medium">{player.name} {player.isCPU ? '🤖' : ''}</span>
+                                            <div key={idx} className="bg-white px-4 py-2 rounded-lg shadow-sm flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <UsersIcon />
+                                                    <span className="font-medium">{player.name} {player.isCPU ? '🤖' : ''}</span>
+                                                </div>
+                                                {gameState.hostName === player.name && (
+                                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Host</span>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
                                 )}
                             </div>
 
-                            {hasJoined && !gameState.gameStarted && (
+                            {hasJoined && !gameState.gameStarted && gameState.hostName === playerName && (
                                 <button
                                     onClick={startGame}
-                                    disabled={!gameState.players || (gameMode === 'solo' ? gameState.players.length < 2 : gameState.players.length < 2)}
+                                    disabled={!gameState.players || gameState.players.length < 2}
                                     className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-bold text-lg hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {!gameState.players || gameState.players.length < 2
-                                        ? (gameMode === 'solo' ? 'Enter your name to start' : 'Need at least 2 players') 
+                                        ? 'Need at least 2 players' 
                                         : 'Start Race!'}
                                 </button>
+                            )}
+
+                            {hasJoined && !gameState.gameStarted && gameState.hostName !== playerName && (
+                                <p className="text-center text-gray-600">Waiting for host to start the game...</p>
                             )}
 
                             {gameState.gameStarted && (
@@ -612,8 +709,9 @@
                 );
             }
 
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-            const isMyTurn = currentPlayer && currentPlayer.name === playerName;
+            const isHost = gameState.hostName === playerName;
+            const myPlayer = gameState.players.find(p => p.name === playerName);
+            const hasRolled = myPlayer?.hasRolledThisRound;
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4 md:p-8">
@@ -631,7 +729,7 @@
                         <div className="bg-white rounded-2xl shadow-2xl p-4 md:p-8">
                             <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                                 <div>
-                                    <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Dice Race</h1>
+                                    <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Dice Race - Round {gameState.roundNumber}</h1>
                                     <p className="text-sm text-gray-600">Playing as: {playerName}</p>
                                     {gameMode === 'host' && (
                                         <p className="text-xs text-gray-500">Game code: <span className="font-mono font-bold">{gameCode}</span></p>
@@ -654,6 +752,30 @@
                                 </div>
                             </div>
 
+                            {gameState.roundActive && (
+                                <div className="mb-6 p-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl text-white text-center">
+                                    <div className="text-4xl font-bold mb-2">{timeLeft}s</div>
+                                    <div className="text-sm">Time remaining to roll</div>
+                                </div>
+                            )}
+
+                            {!gameState.roundActive && !gameState.winner && isHost && (
+                                <div className="mb-6 text-center">
+                                    <button
+                                        onClick={startNextRound}
+                                        className="px-8 py-4 bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-xl font-bold text-xl hover:from-green-600 hover:to-blue-600"
+                                    >
+                                        Start Next Round
+                                    </button>
+                                </div>
+                            )}
+
+                            {!gameState.roundActive && !gameState.winner && !isHost && (
+                                <div className="mb-6 p-4 bg-gray-100 rounded-xl text-center text-gray-600">
+                                    Waiting for host to start next round...
+                                </div>
+                            )}
+
                             {gameState.winner && (
                                 <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-xl p-6 mb-8 text-center">
                                     <div className="flex justify-center mb-4 text-white">
@@ -665,17 +787,28 @@
 
                             <div className="mb-8 space-y-3">
                                 {gameState.players && gameState.players.map((player, idx) => {
-                                    const isCurrentPlayer = idx === gameState.currentPlayerIndex && !gameState.winner;
                                     const progress = (player.position / WINNING_POSITION) * 100;
                                     
                                     return (
-                                        <div key={idx} className={`p-3 md:p-4 rounded-xl transition-all ${isCurrentPlayer ? 'bg-purple-100 border-2 border-purple-500' : 'bg-gray-50'}`}>
+                                        <div key={idx} className="p-3 md:p-4 rounded-xl bg-gray-50">
                                             <div className="flex justify-between items-center mb-2">
-                                                <span className={`font-bold text-base md:text-lg ${isCurrentPlayer ? 'text-purple-700' : 'text-gray-700'}`}>
-                                                    {player.name}
-                                                    {player.isCPU && ' 🤖'}
-                                                    {isCurrentPlayer && !gameState.winner && ' 👈'}
-                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-base md:text-lg text-gray-700">
+                                                        {player.name}
+                                                        {player.isCPU && ' 🤖'}
+                                                    </span>
+                                                    {player.currentRoll !== null && (
+                                                        <span className="text-sm bg-purple-100 text-purple-700 px-2 py-1 rounded font-mono">
+                                                            {player.diceChoice === 'safe' && '🛡️'}
+                                                            {player.diceChoice === 'normal' && '⚪'}
+                                                            {player.diceChoice === 'risky' && '⚡'}
+                                                            {' '}{player.currentRoll}
+                                                        </span>
+                                                    )}
+                                                    {player.hasRolledThisRound && player.currentRoll === null && (
+                                                        <span className="text-sm text-green-600">✓ Ready</span>
+                                                    )}
+                                                </div>
                                                 <span className="text-xs md:text-sm font-semibold text-gray-600">
                                                     {player.position}/{WINNING_POSITION}
                                                 </span>
@@ -697,20 +830,18 @@
                                 })}
                             </div>
 
-                            {!gameState.winner && (
+                            {gameState.roundActive && !hasRolled && !gameState.winner && (
                                 <div className="text-center">
-                                    <div className="mb-6">
-                                        <p className="text-lg md:text-xl font-semibold text-gray-700 mb-4">
-                                            {isMyTurn ? "Your turn!" : `${currentPlayer?.name || 'Someone'}'s turn`}
-                                        </p>
-                                        {diceValue && (
+                                    {myRoll !== null && (
+                                        <div className="mb-6">
                                             <div className="inline-block bg-white border-4 border-purple-500 rounded-2xl p-6 md:p-8 shadow-xl mb-4">
-                                                <div className="text-5xl md:text-7xl font-bold text-purple-600">{diceValue}</div>
+                                                <div className="text-5xl md:text-7xl font-bold text-purple-600">{myRoll}</div>
                                             </div>
-                                        )}
-                                    </div>
+                                            <p className="text-green-600 font-semibold">✓ Roll submitted!</p>
+                                        </div>
+                                    )}
 
-                                    {isMyTurn ? (
+                                    {myRoll === null && (
                                         <div className="space-y-4">
                                             <p className="text-sm text-gray-600 mb-2">Choose your dice:</p>
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-3xl mx-auto">
@@ -745,11 +876,14 @@
                                                 </button>
                                             </div>
                                         </div>
-                                    ) : (
-                                        <div className="text-gray-500">
-                                            <p>Waiting for {currentPlayer?.name || 'next player'} to roll...</p>
-                                        </div>
                                     )}
+                                </div>
+                            )}
+
+                            {gameState.roundActive && hasRolled && myRoll === null && (
+                                <div className="text-center text-gray-500">
+                                    <p className="text-green-600 font-semibold mb-2">✓ You've rolled!</p>
+                                    <p>Waiting for other players...</p>
                                 </div>
                             )}
                         </div>
