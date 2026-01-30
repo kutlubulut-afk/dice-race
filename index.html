@@ -15,7 +15,7 @@
     <div id="root"></div>
     
     <script type="text/babel">
-        const { useState, useEffect, useCallback } = React;
+        const { useState, useEffect } = React;
 
         const VALID_USERNAME = "Sheetstormrules";
         const VALID_PASSWORD = "icebreaker2026";
@@ -475,7 +475,7 @@
                 setDiceValue(null);
             };
 
-            const rollDice = useCallback((diceType) => {
+            const rollDice = (diceType) => {
                 if (isRolling || !gameState || !gameState.waitingForRolls) return;
                 
                 const myPlayer = gameState.players.find(p => p.name === playerName);
@@ -521,7 +521,7 @@
                         }, 500);
                     }
                 }, 100);
-            }, [isRolling, gameState, playerName, gameMode, gameCode]);
+            };
 
             const resetGame = () => {
                 const newState = {
